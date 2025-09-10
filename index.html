@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Luna – Supervisor WhatsApp</title>
+
+  <link rel="stylesheet" href="styles.css"/>
+  <style>.hidden{display:none!important}</style>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Seus scripts -->
+  <script defer src="config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body class="mode-chat">
+
+  <!-- LOGIN -->
+  <!-- A tela de login original foi acidentalmente substituída por um comentário,
+       o que fazia o front‑end quebrar e exibir apenas uma tela em branco. Abaixo
+       reconstruímos a estrutura necessária com os mesmos IDs e classes
+       esperados pelo script app.js para que o fluxo de autenticação funcione
+       novamente.  -->
+  <main id="login-view" class="login hidden">
+    <!-- Etapa 1: Login da conta (e‑mail e senha) -->
+    <div id="step-account" class="login-step">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo"><img src="lunapngcinza.png" alt="Luna" class="loading-logo"></div>
+          <h1>Luna</h1>
+          <p class="login-sub">Entre com sua conta para continuar</p>
+        </div>
+        <div class="login-form">
+          <div class="form-group">
+            <label for="acct-email">E-mail</label>
+            <input id="acct-email" type="email" class="inp" placeholder="Seu e‑mail" autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label for="acct-pass">Senha</label>
+            <input id="acct-pass" type="password" class="inp" placeholder="Sua senha" autocomplete="current-password" />
+          </div>
+          <!-- Mensagens de erro do login de conta -->
+          <div id="acct-msg" class="msg-err"></div>
+          <button id="btn-acct-login" class="btn btn-primary">
+            Entrar
+          </button>
+          <!-- Link para criar conta -->
+          <div class="login-register-container">
+            <span>Não tem conta?</span>
+            <a href="#" id="link-acct-register">Criar conta</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Etapa de registro: criação de conta -->
+    <div id="step-register" class="login-step hidden">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo"><img src="lunapngcinza.png" alt="Luna" class="loading-logo"></div>
+          <h1>Criar Conta</h1>
+          <p class="login-sub">Preencha os campos para criar sua conta</p>
+        </div>
+        <div class="login-form">
+          <div class="form-group">
+            <label for="reg-email">E-mail</label>
+            <input id="reg-email" type="email" class="inp" placeholder="Seu e‑mail" autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label for="reg-pass">Senha</label>
+            <input id="reg-pass" type="password" class="inp" placeholder="Crie uma senha" autocomplete="new-password" />
+          </div>
+          <!-- Mensagens de erro do registro -->
+          <div id="reg-msg" class="msg-err"></div>
+          <button id="btn-acct-register" class="btn btn-primary">Criar Conta</button>
+          <button id="btn-back-to-login" class="btn btn-secondary">Voltar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Etapa 2: Conexão da instância (token da instância) -->
+    <div id="step-instance" class="login-step hidden">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo"><img src="lunapngcinza.png" alt="Luna" class="loading-logo"></div>
+          <h1>Luna</h1>
+          <p class="login-sub">Conecte sua instância do WhatsApp</p>
+        </div>
+        <div class="login-form">
+          <div class="form-group">
+            <label for="token">Token da instância</label>
+            <input id="token" type="text" class="inp" placeholder="Cole o token aqui" />
+          </div>
+          <!-- Mensagens de erro do token -->
+          <div id="msg" class="msg-err"></div>
+          <button id="btn-login" class="btn btn-primary">
+            <span>Conectar instância</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- LOADING -->
+  <section id="loading-view" class="loading hidden">
+    <div class="loading-container">
+      <div class="loading-logos-animation">
+        <div class="loading-logo-luna"><img src="lunapngcinza.png" alt="Luna" class="loading-logo"></div>
+        <div class="loading-logo-helsenia"><img src="logohelsenia.png" alt="Helsenia" class="loading-logo" onerror="this.src='lunapngcinza.png'"></div>
+      </div>
+      <h2>Carregando Sistema</h2>
+      <p>Preparando suas conversas...</p>
+      <div class="loading-progress"><div class="progress-bar"><div class="progress-fill"></div></div></div>
+    </div>
+  </section>
+
+  <!-- APP -->
+  <section id="app-view" class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon"><img src="lunapngcinza.png" alt="Luna" class="brand-logo"></div>
+        <div class="brand-text"><span class="brand-name">Luna</span><small id="profile">Supervisor WhatsApp</small></div>
+      </div>
+      <div class="topbar-actions">
+        <button id="btn-refresh" class="btn btn-icon" title="Atualizar" aria-label="Atualizar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 0 1 9-9 9.8 9.8 0 0 1 6.7 2.7L21 8"/><path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7L3 16"/><path d="M3 21v-5h5"/>
+          </svg>
+        </button>
+        <button id="btn-logout" class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span class="btn-text">Sair</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <!-- MENU LATERAL (recolhível) -->
+      <nav class="nav-rail" aria-label="Menu principal">
+        <button id="btn-rail-toggle" class="rail-toggle" aria-label="Recolher/Expandir menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          <span class="label">Recolher</span>
+        </button>
+
+        <div class="menu-title">Menu</div>
+
+        <button id="btn-conversas" class="menu-item active" data-view="conversas">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="label">Conversas</span>
+        </button>
+
+        <button id="btn-pagamentos" class="menu-item" data-view="pagamentos">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+          </svg>
+          <span class="label">Pagamentos</span>
+        </button>
+      </nav>
+
+      <!-- LISTA DE CONVERSAS -->
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h2>Conversas</h2>
+          <div class="mobile-stage-selector">
+            <select id="mobile-stage-select" class="stage-select">
+              <option value="geral">Geral</option>
+              <option value="contatos">Contatos</option>
+              <option value="lead">Lead</option>
+              <option value="lead_quente">Lead Quente</option>
+            </select>
+          </div>
+          <div class="mobile-counters">
+            <span>Contatos: <b id="mobile-counter-contatos">0</b></span>
+            <span>Lead: <b id="mobile-counter-lead">0</b></span>
+            <span>Lead Quente: <b id="mobile-counter-lead_quente">0</b></span>
+          </div>
+          <div class="sidebar-stats"><span class="stats-badge">Ativo</span></div>
+        </div>
+        <div id="chat-list" class="chat-list">
+          <!-- itens de conversa renderizados pelo app.js -->
+        </div>
+      </aside>
+
+      <!-- CONTEÚDO PRINCIPAL -->
+      <main class="main">
+        <!-- Pagamentos -->
+        <div id="billing-view" class="billing-view hidden" tabindex="-1">
+          <div class="billing-header">
+            <h2>Pagamentos</h2>
+            <p>Gerencie sua assinatura da Luna AI</p>
+          </div>
+          <div class="billing-content">
+            <div class="billing-plan">
+              <div class="plan-header">
+                <h3>Luna AI Professional</h3>
+                <div class="plan-price">R$ 349,90<span>/mês</span></div>
+              </div>
+              <div class="plan-description">
+                <p>Prospecção inteligente por nicho específico, muito mais eficaz que campanhas aleatórias. Supervisione conversas do WhatsApp com IA avançada.</p>
+              </div>
+            </div>
+
+            <div class="billing-status">
+              <h4>Seu Status</h4>
+              <div id="billing-status-content" class="status-content">
+                <div class="status-item"><span class="status-label">Plano atual:</span><span id="current-plan" class="status-value">Trial</span></div>
+                <div class="status-item"><span class="status-label">Dias restantes:</span><span id="days-remaining" class="status-value">0</span></div>
+                <div class="status-item"><span class="status-label">Trial até:</span><span id="trial-until" class="status-value">N/A</span></div>
+                <div class="status-item"><span class="status-label">Pago até:</span><span id="paid-until" class="status-value">N/A</span></div>
+              </div>
+            </div>
+
+            <div class="billing-actions">
+              <button id="btn-pay-getnet" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+                </svg>
+                Pagar com GetNet
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat -->
+        <div class="chatbar">
+          <button id="btn-back-mobile" class="btn btn-icon back" title="Voltar" aria-label="Voltar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+          </button>
+          <div class="chat-info">
+            <div id="chat-header" class="chat-title">Selecione uma conversa</div>
+            <div class="chat-status">Escolha um chat para começar</div>
+          </div>
+        </div>
+
+        <div id="messages" class="messages">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <h3>Nenhuma conversa selecionada</h3>
+            <p>Escolha uma conversa da lista para visualizar as mensagens</p>
+          </div>
+        </div>
+      </main>
+    <!-- Modal de QR Code para conexão da instância -->
+    <div id="qr-modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;">
+      <div style="background:#fff;padding:20px;border-radius:8px;max-width:320px;text-align:center">
+        <h3 style="margin-top:0;margin-bottom:10px;font-size:1.2rem">Conectar WhatsApp</h3>
+        <p id="qr-status" style="margin:0 0 10px 0">Aguardando QR…</p>
+        <img id="qr-img" alt="QR Code" style="width:240px;height:240px;border:1px solid #ccc;margin-bottom:10px"/>
+        <button id="qr-close" class="btn btn-secondary">Fechar</button>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- MODAL PAGAMENTO (opcional) -->
+  <div id="billing-modal" class="billing-modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header"><h3>Período de teste expirado</h3></div>
+      <div class="modal-body"><p>Seu período de teste grátis acabou. Vá em Pagamentos para continuar usando a Luna AI.</p></div>
+      <div class="modal-actions">
+        <button id="btn-go-to-payments" class="btn btn-primary">Ir para Pagamentos</button>
+        <button id="btn-logout-modal" class="btn btn-secondary">Sair</button>
+      </div>
+    </div>
+  </div>
+
+  <noscript><div style="padding:16px;background:#111;color:#fff">Ative o JavaScript para usar a Luna.</div></noscript>
+
+  <!-- JS de UI: alterna modos, routing SPA e recolhe menu -->
+  <script>
+  (function () {
+    const body = document.body;
+    const railToggle = document.getElementById('btn-rail-toggle');
+    const btnConversas = document.getElementById('btn-conversas');
+    const btnPagamentos = document.getElementById('btn-pagamentos');
+    const btnPayGetnet = document.getElementById('btn-pay-getnet');
+    const billingView = document.getElementById('billing-view');
+
+    function setMode(mode) {
+      body.classList.toggle('mode-chat', mode === 'chat');
+      body.classList.toggle('mode-billing', mode === 'billing');
+      btnConversas.classList.toggle('active', mode === 'chat');
+      btnPagamentos.classList.toggle('active', mode === 'billing');
+      if (mode === 'billing') billingView?.focus();
+    }
+
+    function openGetNetIfConfigured() {
+      if (window.GETNET_CHECKOUT_URL) {
+        window.open(window.GETNET_CHECKOUT_URL, '_blank', 'noopener,noreferrer');
+      }
+    }
+
+    function handleRoute(pathname) {
+      const path = pathname || location.pathname;
+      if (path === '/' || path === '') {
+        setMode('chat');
+      } else if (path === '/pagamentos') {
+        setMode('billing');
+      } else if (path === '/pagamentos/getnet') {
+        setMode('billing');
+        openGetNetIfConfigured();
+      } else {
+        setMode('chat');
+      }
+    }
+
+    function navTo(path, evt) {
+      if (evt) evt.preventDefault();
+      if (location.pathname !== path) {
+        history.pushState({}, '', path);
+      }
+      handleRoute(path);
+    }
+
+    btnConversas?.addEventListener('click', (e) => navTo('/', e));
+    btnPagamentos?.addEventListener('click', (e) => navTo('/pagamentos', e));
+    btnPayGetnet?.addEventListener('click', (e) => navTo('/pagamentos/getnet', e));
+
+    document.getElementById('btn-go-to-payments')?.addEventListener('click', () => {
+      document.getElementById('billing-modal')?.classList.add('hidden');
+      navTo('/pagamentos');
+    });
+    document.getElementById('btn-logout-modal')?.addEventListener('click', () => {
+      document.getElementById('billing-modal')?.classList.add('hidden');
+    });
+
+    railToggle?.addEventListener('click', () => {
+      body.classList.toggle('rail-collapsed');
+      railToggle.querySelector('svg').style.transform =
+        body.classList.contains('rail-collapsed') ? 'rotate(180deg)' : 'rotate(0deg)';
+      railToggle.querySelector('.label').textContent =
+        body.classList.contains('rail-collapsed') ? 'Expandir' : 'Recolher';
+    });
+
+    window.addEventListener('popstate', () => handleRoute());
+    handleRoute();
+  })();
+  </script>
+</body>
+</html>
