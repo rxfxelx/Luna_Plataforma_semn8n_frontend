@@ -1,2 +1,2 @@
 // config.js
-window.__BACKEND_URL__ = "https://web-production-3bc4c.up.railway.app"
+window.__BACKEND_URL__ = "https://luna-plataforma-semn8n-back-end-production.up.railway.app"
