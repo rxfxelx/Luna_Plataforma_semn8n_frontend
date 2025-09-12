@@ -84,91 +84,6 @@ function truncatePreview(s, max = 90) {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
 
-/*
- * ============================================================
- *  Helper functions para integração com a Uazapi (instância)
- * ============================================================
- * Criar instância, iniciar conexão (QR/paircode), polling do QR
- * e exibir modal simples de QR.
- */
-
-// ==== Conta (auth de e-mail/senha) ====
-const ACCT_JWT_KEY = "luna_acct_jwt";
-function acctJwt() { return localStorage.getItem(ACCT_JWT_KEY) || ""; }
-function acctHeaders() {
-  const h = { "Content-Type": "application/json" };
-  const t = acctJwt();
-  if (t) h.Authorization = "Bearer " + t;
-  return h;
-}
-async function acctApi(path, opts = {}) {
-  const res = await fetch(BACKEND() + path, { headers: { ...acctHeaders(), ...(opts.headers || {}) }, ...opts });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
-  return res.json().catch(() => ({}));
-}
-
-// Cria uma instância na Uazapi e retorna { instance, token }
-async function createUazInstance(name = "Minha Instância") {
-  const jwtAcct = acctJwt();
-  if (!jwtAcct) throw new Error("Usuário não autenticado");
-  const res = await fetch(BACKEND() + "/api/uaz/instance/init", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwtAcct },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) throw new Error(await res.text().catch(() => ""));
-  return res.json().catch(() => ({}));
-}
-
-// Aciona a conexão de uma instância existente (gera QR ou paircode)
-async function connectUazInstance(instance) {
-  const jwtAcct = acctJwt();
-  if (!jwtAcct) throw new Error("Usuário não autenticado");
-  const res = await fetch(BACKEND() + "/api/uaz/instance/connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwtAcct },
-    body: JSON.stringify({ instance }),
-  });
-  if (!res.ok) throw new Error(await res.text().catch(() => ""));
-  return res.json().catch(() => ({}));
-}
-
-// Consulta QR/status periodicamente
-async function pollUazQR(instance, { interval = 3000, timeout = 180000, onUpdate } = {}) {
-  const jwtAcct = acctJwt();
-  if (!jwtAcct) throw new Error("Usuário não autenticado");
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try {
-      const url = new URL(BACKEND() + "/api/uaz/instance/qr");
-      url.searchParams.set("instance", instance);
-      const res = await fetch(url.toString(), { headers: { Authorization: "Bearer " + jwtAcct } });
-      if (!res.ok) throw new Error(await res.text().catch(() => ""));
-      const data = await res.json().catch(() => ({}));
-      onUpdate && onUpdate(data);
-      if (data.status === "connected") return data;
-    } catch (e) {
-      console.error("pollUazQR", e);
-    }
-    await new Promise((r) => setTimeout(r, interval));
-  }
-  throw new Error("Tempo esgotado para conexão da instância");
-}
-
-// Exibe/fecha modal de QR
-function showQrModal() { const m = $("#qr-modal"); if (m) m.classList.remove("hidden"); }
-function hideQrModal() { const m = $("#qr-modal"); if (m) m.classList.add("hidden"); }
-// Atualiza modal
-function updateQrModal({ status, qrcode, paircode }) {
-  const statusEl = $("#qr-status");
-  const imgEl = $("#qr-img");
-  if (statusEl) statusEl.textContent = status === "connected" ? "Conectado!" : (status || "Aguardando...");
-  if (imgEl) {
-    if (qrcode) imgEl.src = qrcode;
-    else if (paircode) imgEl.src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(paircode)}`;
-  }
-}
-
 /* ========= NDJSON STREAM ========= */
 async function* readNDJSONStream(resp) {
   const reader = resp.body.getReader();
@@ -282,134 +197,134 @@ function reorderChatList() {
 }
 
 /* =========================================
- * 3) STREAM DE CONVERSAS (GET + token na query)
+ * 3) STREAM DE CONVERSAS (POST + Authorization)
  * ======================================= */
-let _streamAbort = null;
+let _streamAbortCtrl = null;
 function stopStream() {
-  try { _streamAbort && _streamAbort.abort(); } catch {}
-  _streamAbort = null;
+  try { _streamAbortCtrl && _streamAbortCtrl.abort(); } catch {}
+  _streamAbortCtrl = null;
 }
 
-// Inicia o stream e reconecta se cair
 function startStream(jwtInst) {
   stopStream();
   const controller = new AbortController();
-  _streamAbort = controller;
+  _streamAbortCtrl = controller;
 
-  try {
-    const url = new URL(BACKEND() + "/api/chats/stream");
-    if (jwtInst) url.searchParams.set("token", jwtInst);
+  const headers = { "Content-Type": "application/json" };
+  if (jwtInst) headers.Authorization = "Bearer " + jwtInst;
 
-    fetch(url.toString(), { method: "GET", signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok || !res.body) throw new Error(await res.text().catch(() => `Stream HTTP ${res.status}`));
-        const list = $("#chat-list");
-        if (list) list.innerHTML = "";
-        state.chats = [];
+  fetch(BACKEND() + "/api/chats/stream", {
+    method: "POST",
+    headers,
+    signal: controller.signal,
+    body: JSON.stringify({ operator: "AND", sort: "-wa_lastMsgTimestamp" }),
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) throw new Error(await res.text().catch(() => `Stream HTTP ${res.status}`));
 
-        for await (const item of readNDJSONStream(res)) {
-          if (controller.signal.aborted) return;
-          if (item?.error) continue;
+      const list = $("#chat-list");
+      if (list) list.innerHTML = "";
+      state.chats = [];
 
-          state.chats.push(item);
+      for await (const item of readNDJSONStream(res)) {
+        if (controller.signal.aborted) return;
+        if (item?.error) continue;
 
-          const baseTs = item.wa_lastMsgTimestamp || item.messageTimestamp || item.updatedAt || 0;
-          const id = item.wa_chatid || item.chatid || item.wa_fastid || item.wa_id || "";
-          updateLastActivity(id, baseTs);
+        state.chats.push(item);
 
-          const stageFromStream = normalizeStage(item?._stage || item?.stage || item?.status || "");
-          if (id && stageFromStream) {
-            setStage(id, stageFromStream);
-            rIC(refreshStageCounters);
-            if (state.activeTab !== "geral") {
-              const tab = state.activeTab;
-              rIC(() => loadStageTab(tab));
-            }
-            if (state.current && (state.current.wa_chatid || state.current.chatid) === id) {
-              upsertStagePill(stageFromStream);
-            }
+        const baseTs = item.wa_lastMsgTimestamp || item.messageTimestamp || item.updatedAt || 0;
+        const id = item.wa_chatid || item.chatid || item.wa_fastid || item.wa_id || "";
+        updateLastActivity(id, baseTs);
+
+        const stageFromStream = normalizeStage(item?._stage || item?.stage || item?.status || "");
+        if (id && stageFromStream) {
+          setStage(id, stageFromStream);
+          rIC(refreshStageCounters);
+          if (state.activeTab !== "geral") {
+            const tab = state.activeTab;
+            rIC(() => loadStageTab(tab));
           }
-
-          if (state.activeTab === "geral") {
-            const curList = $("#chat-list");
-            if (curList) appendChatSkeleton(curList, item);
+          if (state.current && (state.current.wa_chatid || state.current.chatid) === id) {
+            upsertStagePill(stageFromStream);
           }
+        }
 
-          if (!id) continue;
+        if (state.activeTab === "geral") {
+          const curList = $("#chat-list");
+          if (curList) appendChatSkeleton(curList, item);
+        }
 
-          queueStageLookup(id);
+        if (!id) continue;
 
-          // Prefetch: nome / preview / horário
-          pushBg(async () => {
-            try {
-              if (!state.nameCache.has(id)) {
-                const resp = await fetchNameImage(id);
-                state.nameCache.set(id, resp || {});
-                const cardEl = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"]`);
-                if (cardEl) hydrateChatCard(item);
-              }
-            } catch {}
+        queueStageLookup(id);
 
-            try {
-              const pvKey = `pv:${id}`;
-              const pvHit = LStore.get(pvKey);
-              if (pvHit && !state.lastMsg.has(id)) {
-                state.lastMsg.set(id, pvHit.text || "");
-                state.lastMsgFromMe.set(id, !!pvHit.fromMe);
-                const card = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .preview`);
-                if (card) {
-                  const txt = pvHit.text
-                    ? (pvHit.fromMe ? "Você: " : "") + truncatePreview(pvHit.text, 90)
-                    : "Sem mensagens";
-                  card.textContent = txt;
-                  card.title = pvHit.text ? (pvHit.fromMe ? "Você: " : "") + pvHit.text : "Sem mensagens";
-                }
-              }
+        // Prefetch: nome / preview / horário
+        pushBg(async () => {
+          try {
+            if (!state.nameCache.has(id)) {
+              const resp = await fetchNameImage(id);
+              state.nameCache.set(id, resp || {});
+              const cardEl = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"]`);
+              if (cardEl) hydrateChatCard(item);
+            }
+          } catch {}
 
-              const latest = await api("/api/messages", {
-                method: "POST",
-                body: JSON.stringify({ chatid: id, limit: 1, sort: "-messageTimestamp" }),
-              });
-              const last = Array.isArray(latest?.items) ? latest.items[0] : null;
-              const pv = last
-                ? (last.text || last.caption || last?.message?.text || last?.message?.conversation || last?.body || "")
-                    .replace(/\s+/g, " ").trim()
-                : (item.wa_lastMessageText || "").replace(/\s+/g, " ").trim();
-              const fromMe = last ? isFromMe(last) : false;
-
-              state.lastMsg.set(id, pv || "");
-              state.lastMsgFromMe.set(id, fromMe);
-              LStore.set(pvKey, { text: pv || "", fromMe }, TTL.PREVIEW);
-
+          try {
+            const pvKey = `pv:${id}`;
+            const pvHit = LStore.get(pvKey);
+            if (pvHit && !state.lastMsg.has(id)) {
+              state.lastMsg.set(id, pvHit.text || "");
+              state.lastMsgFromMe.set(id, !!pvHit.fromMe);
               const card = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .preview`);
               if (card) {
-                const txt = pv ? (fromMe ? "Você: " : "") + truncatePreview(pv, 90) : "Sem mensagens";
+                const txt = pvHit.text
+                  ? (pvHit.fromMe ? "Você: " : "") + truncatePreview(pvHit.text, 90)
+                  : "Sem mensagens";
                 card.textContent = txt;
-                card.title = pv ? (fromMe ? "Você: " : "") + pv : "Sem mensagens";
+                card.title = pvHit.text ? (pvHit.fromMe ? "Você: " : "") + pvHit.text : "Sem mensagens";
               }
-              if (last) {
-                updateLastActivity(id, last.messageTimestamp || last.timestamp || last.t || Date.now());
-                const tEl = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .time`);
-                if (tEl) tEl.textContent = formatTime(last.messageTimestamp || last.timestamp || last.t || "");
-              }
-            } catch {
-              const card = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .preview`);
-              if (card) { card.textContent = "Sem mensagens"; card.title = "Sem mensagens"; }
-              const base = state.chats.find((c) => (c.wa_chatid || c.chatid || c.wa_fastid || c.wa_id || "") === id) || {};
-              updateLastActivity(id, base.wa_lastMsgTimestamp || base.messageTimestamp || base.updatedAt || 0);
             }
-          });
-        }
-      })
-      .catch((e) => {
-        if (controller.signal.aborted) return;
-        console.warn("Stream caiu, reconectando em 3s:", e);
-        setTimeout(() => startStream(jwt()), 3000);
-      });
-  } catch (e) {
-    console.error("startStream error:", e);
-    setTimeout(() => startStream(jwt()), 3000);
-  }
+
+            const latest = await api("/api/messages", {
+              method: "POST",
+              body: JSON.stringify({ chatid: id, limit: 1, sort: "-messageTimestamp" }),
+            });
+            const last = Array.isArray(latest?.items) ? latest.items[0] : null;
+            const pv = last
+              ? (last.text || last.caption || last?.message?.text || last?.message?.conversation || last?.body || "")
+                  .replace(/\s+/g, " ").trim()
+              : (item.wa_lastMessageText || "").replace(/\s+/g, " ").trim();
+            const fromMe = last ? isFromMe(last) : false;
+
+            state.lastMsg.set(id, pv || "");
+            state.lastMsgFromMe.set(id, fromMe);
+            LStore.set(pvKey, { text: pv || "", fromMe }, TTL.PREVIEW);
+
+            const card = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .preview`);
+            if (card) {
+              const txt = pv ? (fromMe ? "Você: " : "") + truncatePreview(pv, 90) : "Sem mensagens";
+              card.textContent = txt;
+              card.title = pv ? (fromMe ? "Você: " : "") + pv : "Sem mensagens";
+            }
+            if (last) {
+              updateLastActivity(id, last.messageTimestamp || last.timestamp || last.t || Date.now());
+              const tEl = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .time`);
+              if (tEl) tEl.textContent = formatTime(last.messageTimestamp || last.timestamp || last.t || "");
+            }
+          } catch {
+            const card = document.querySelector(`.chat-item[data-chatid="${CSS.escape(id)}"] .preview`);
+            if (card) { card.textContent = "Sem mensagens"; card.title = "Sem mensagens"; }
+            const base = state.chats.find((c) => (c.wa_chatid || c.chatid || c.wa_fastid || c.wa_id || "") === id) || {};
+            updateLastActivity(id, base.wa_lastMsgTimestamp || base.messageTimestamp || base.updatedAt || 0);
+          }
+        });
+      }
+    })
+    .catch((e) => {
+      if (controller.signal.aborted) return;
+      console.warn("Stream caiu, tentando reconectar em 3s:", e);
+      setTimeout(() => startStream(jwt()), 3000);
+    });
 }
 
 /* =========================================
@@ -584,13 +499,86 @@ async function loadCRMStage(stage) {
 function attachCRMControlsToCard(el, ch) {}
 
 /* =========================================
- * 6) CONTA / LOGIN / REGISTRO / PAREAMENTO
+ * 6) CONTA / LOGIN / REGISTRO / PAREAMENTO (Uazapi)
  * ======================================= */
-function showStepAccount() { hide("#step-instance"); hide("#step-register"); show("#step-account"); }
-function showStepInstance() { hide("#step-account"); hide("#step-register"); show("#step-instance"); }
-function showStepRegister() { hide("#step-account"); hide("#step-instance"); show("#step-register"); }
+// ==== Conta (auth de e-mail/senha) ====
+const ACCT_JWT_KEY = "luna_acct_jwt";
+function acctJwt() { return localStorage.getItem(ACCT_JWT_KEY) || ""; }
+function acctHeaders() {
+  const h = { "Content-Type": "application/json" };
+  const t = acctJwt();
+  if (t) h.Authorization = "Bearer " + t;
+  return h;
+}
+async function acctApi(path, opts = {}) {
+  const res = await fetch(BACKEND() + path, { headers: { ...acctHeaders(), ...(opts.headers || {}) }, ...opts });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+  return res.json().catch(() => ({}));
+}
 
-// Registro de trial (user) e billing
+// Cria uma instância na Uazapi e retorna { instance, token, status }
+async function createUazInstance(name = "Minha Instância") {
+  const jwtAcct = acctJwt();
+  if (!jwtAcct) throw new Error("Usuário não autenticado");
+  const res = await fetch(BACKEND() + "/api/uaz/instance/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwtAcct },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await res.text().catch(() => ""));
+  return res.json().catch(() => ({}));
+}
+
+// Aciona a conexão de uma instância existente (gera QR ou paircode)
+async function connectUazInstance(instance) {
+  const jwtAcct = acctJwt();
+  if (!jwtAcct) throw new Error("Usuário não autenticado");
+  const res = await fetch(BACKEND() + "/api/uaz/instance/connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwtAcct },
+    body: JSON.stringify({ instance }),
+  });
+  if (!res.ok) throw new Error(await res.text().catch(() => ""));
+  return res.json().catch(() => ({}));
+}
+
+// Consulta QR/status periodicamente
+async function pollUazQR(instance, { interval = 3000, timeout = 180000, onUpdate } = {}) {
+  const jwtAcct = acctJwt();
+  if (!jwtAcct) throw new Error("Usuário não autenticado");
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    try {
+      const url = new URL(BACKEND() + "/api/uaz/instance/qr");
+      url.searchParams.set("instance", instance);
+      const res = await fetch(url.toString(), { headers: { Authorization: "Bearer " + jwtAcct } });
+      if (!res.ok) throw new Error(await res.text().catch(() => ""));
+      const data = await res.json().catch(() => ({}));
+      onUpdate && onUpdate(data);
+      if (data.status === "connected") return data;
+    } catch (e) {
+      console.error("pollUazQR", e);
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  throw new Error("Tempo esgotado para conexão da instância");
+}
+
+// Exibe/fecha modal de QR
+function showQrModal() { const m = $("#qr-modal"); if (m) m.classList.remove("hidden"); }
+function hideQrModal() { const m = $("#qr-modal"); if (m) m.classList.add("hidden"); }
+// Atualiza modal
+function updateQrModal({ status, qrcode, paircode }) {
+  const statusEl = $("#qr-status");
+  const imgEl = $("#qr-img");
+  if (statusEl) statusEl.textContent = status === "connected" ? "Conectado!" : (status || "Aguardando...");
+  if (imgEl) {
+    if (qrcode) imgEl.src = qrcode;
+    else if (paircode) imgEl.src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(paircode)}`;
+  }
+}
+
+// Trial/billing
 let billingStatus = null;
 async function registerTrialUser() {
   try { await acctApi("/api/billing/register-trial", { method: "POST" }); }
@@ -678,8 +666,9 @@ async function acctLogin() {
 
     try { await registerTrialUser(); await checkBillingStatus(); } catch (e) { console.error(e); }
 
-    showStepInstance();
-    $("#token")?.focus();
+    // 🚀 inicia fluxo QR
+    await autoOnboardByQR();
+    switchToApp();
   } catch (e) {
     if (msgEl) msgEl.textContent = e?.message || "Falha no login.";
   } finally {
@@ -710,13 +699,9 @@ async function acctRegister() {
 
     try { await registerTrialUser(); await checkBillingStatus(); } catch (e) { console.error(e); }
 
-    // 🔥 Pareamento automático (QR) + login da instância + iniciar stream
-    try { await startPairingFlow(); } catch (e) { console.error(e); }
-
-    try {
-      const canAccess = await checkBillingStatus();
-      if (canAccess) switchToApp();
-    } catch (e) { console.error(e); }
+    // 🚀 inicia fluxo QR automaticamente
+    await autoOnboardByQR();
+    switchToApp();
   } catch (e) {
     if (msgEl) msgEl.textContent = e?.message || "Falha no registro.";
   } finally {
@@ -724,32 +709,62 @@ async function acctRegister() {
   }
 }
 
-// Orquestração do pareamento (gera QR, conecta, loga instância, inicia stream)
-async function startPairingFlow() {
+// Tenta obter o JWT da instância.
+// 1) /api/auth/instance-jwt (com JWT de conta) -> { jwt }
+// 2) fallback: /api/auth/login  { token } -> { jwt }
+async function tryGetInstanceJwt({ token } = {}) {
+  // 1) Tenta via endpoint de conta
+  try {
+    const r = await fetch(BACKEND() + "/api/auth/instance-jwt", { method: "POST", headers: acctHeaders() });
+    if (r.ok) {
+      const d = await r.json();
+      if (d?.jwt) return d.jwt;
+    }
+  } catch {}
+
+  // 2) Fallback para fluxo legado (requer token da instância)
+  if (!token) return null;
+  const r2 = await fetch(BACKEND() + "/api/auth/login", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }),
+  });
+  if (!r2.ok) throw new Error(await r2.text());
+  const d2 = await r2.json();
+  return d2?.jwt || null;
+}
+
+// Orquestração do pareamento (gera QR, conecta, login, inicia stream)
+async function autoOnboardByQR() {
   try {
     showQrModal();
+    updateQrModal({ status: "Criando instância..." });
+
+    // 1) cria instância
     const instName = `Instância ${new Date().toLocaleString()}`;
-    const { instance, token } = await createUazInstance(instName);
+    const init = await createUazInstance(instName); // {instance, token, status}
+    const instance = init?.instance;
+    const token = init?.token;
+    if (!instance || !token) throw new Error("Falha ao criar instância");
+
     try { localStorage.setItem("luna_uaz_token", token); } catch {}
+
+    // 2) conecta (gera QR)
+    updateQrModal({ status: "Gerando QR Code..." });
     await connectUazInstance(instance);
+
+    // 3) polling até connected
     await pollUazQR(instance, { interval: 3000, timeout: 300000, onUpdate: updateQrModal });
 
-    // Login da instância -> guarda JWT e inicia stream
-    const res = await fetch(BACKEND() + "/api/auth/login", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const d = await res.json();
-    const jwtInst = d?.jwt;
+    // 4) obtém JWT da instância (preferir instance-jwt; fallback login com token)
+    updateQrModal({ status: "Concluindo login..." });
+    const jwtInst = await tryGetInstanceJwt({ token });
     if (!jwtInst) throw new Error("JWT da instância não retornado");
     localStorage.setItem("luna_jwt", jwtInst);
 
-    // Inicia stream de conversas
+    // 5) inicia stream e fecha modal
     startStream(jwtInst);
-
-    setTimeout(hideQrModal, 1000);
+    setTimeout(hideQrModal, 800);
   } catch (e) {
-    console.error(e);
+    console.error("autoOnboardByQR error:", e);
     updateQrModal({ status: "Erro: " + (e.message || e), qrcode: null });
   }
 }
@@ -807,6 +822,7 @@ function hideSplash() {
   if (state.splash.forceTimer) { clearTimeout(state.splash.forceTimer); state.splash.forceTimer = null; }
 }
 
+// Token manual (opcional/avançado). O fluxo normal usa QR.
 async function doLogin() {
   if (!acctJwt()) { showStepAccount(); return; }
   const token = $("#token")?.value?.trim();
@@ -826,7 +842,6 @@ async function doLogin() {
     try { await registerTrial(); } catch {}
     const canAccess = await checkBillingStatus();
     if (canAccess) {
-      // 🔥 Inicia o stream assim que logar manualmente a instância
       startStream(data.jwt);
       switchToApp();
     }
@@ -840,6 +855,7 @@ async function doLogin() {
     }
   }
 }
+
 function ensureTopbar() {
   if (!$(".topbar")) {
     const tb = document.createElement("div");
@@ -876,17 +892,40 @@ function switchToApp() {
   ensureStageTabs();
   createSplash();
   showConversasView();
-  // Importante: não chamar loadChats(); o stream é iniciado após login/pareamento
+  // O stream é iniciado após login/pareamento
 }
-function ensureRoute() {
+async function ensureRoute() {
   const hasAcct = !!acctJwt();
   const hasInst = !!jwt();
-  if (!hasAcct) { show("#login-view"); hide("#app-view"); showStepAccount(); return; }
-  if (!hasInst) { show("#login-view"); hide("#app-view"); showStepInstance(); return; }
-  // Já tem ambos: inicia stream e abre app
+
+  if (!hasAcct) {
+    show("#login-view"); hide("#app-view"); showStepAccount();
+    return;
+  }
+
+  if (!hasInst) {
+    // tenta obter JWT de instância já existente
+    try {
+      const maybe = await tryGetInstanceJwt();
+      if (maybe) {
+        localStorage.setItem("luna_jwt", maybe);
+        startStream(maybe);
+        switchToApp();
+        try { if (typeof handleRoute === "function") handleRoute(); } catch {}
+        return;
+      }
+    } catch {}
+    // se não deu, inicia QR
+    await autoOnboardByQR();
+    switchToApp();
+    try { if (typeof handleRoute === "function") handleRoute(); } catch {}
+    return;
+  }
+
+  // Já tem tudo
   startStream(jwt());
   switchToApp();
-  try { if (typeof handleRoute === "function") handleRoute(); } catch (e) {}
+  try { if (typeof handleRoute === "function") handleRoute(); } catch {}
 }
 
 /* =========================================
@@ -1039,16 +1078,16 @@ async function loadStageTab(stageKey) {
 }
 
 /* =========================================
- * 10) CHATS – FALLBACK (reparte stream)
+ * 10) CHATS – FALLBACK (reinicia stream)
  * ======================================= */
 async function loadChats() {
-  // Apenas reinicia o stream com o JWT atual
   const token = jwt();
+  const list = $("#chat-list");
   if (!token) {
-    const list = $("#chat-list");
     if (list) list.innerHTML = "<div class='hint'>Conecte sua instância para carregar as conversas.</div>";
     return;
   }
+  if (list) list.innerHTML = "<div class='hint'>Carregando conversas...</div>";
   startStream(token);
 }
 
@@ -1764,7 +1803,14 @@ function upsertStagePill(stage) {
 }
 
 /* =========================================
- * 18) ENVIO
+ * 18) ETAPAS DE LOGIN (UI)
+ * ======================================= */
+function showStepAccount() { hide("#step-instance"); hide("#step-register"); show("#step-account"); }
+function showStepInstance() { hide("#step-account"); hide("#step-register"); show("#step-instance"); }
+function showStepRegister() { hide("#step-account"); hide("#step-instance"); show("#step-register"); }
+
+/* =========================================
+ * 19) ENVIO
  * ======================================= */
 async function sendNow() {
   const number = $("#send-number")?.value?.trim();
@@ -1797,7 +1843,7 @@ async function sendNow() {
 }
 
 /* =========================================
- * 19) BOOT
+ * 20) BOOT
  * ======================================= */
 document.addEventListener("DOMContentLoaded", () => {
   $("#btn-login") && ($("#btn-login").onclick = doLogin);
@@ -1827,30 +1873,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const qrCloseBtn = document.getElementById("qr-close");
   if (qrCloseBtn) qrCloseBtn.onclick = () => hideQrModal();
 
-  // Login por e-mail
+  // Login por e-mail / Registro
   $("#btn-acct-login") && ($("#btn-acct-login").onclick = acctLogin);
   $("#acct-pass") && $("#acct-pass").addEventListener("keypress", (e) => { if (e.key === "Enter") { e.preventDefault(); acctLogin(); } });
 
-  // Billing system
-  $("#btn-conversas") && ($("#btn-conversas").onclick = showConversasView);
-  $("#btn-pagamentos") && ($("#btn-pagamentos").onclick = showBillingView);
-  $("#btn-pay-getnet") && ($("#btn-pay-getnet").onclick = createCheckoutLink);
-
-  // Billing modal
-  $("#btn-go-to-payments") && ($("#btn-go-to-payments").onclick = () => { hideBillingModal(); showBillingView(); });
-  $("#btn-logout-modal") && ($("#btn-logout-modal").onclick = () => { try { stopStream(); } catch {} localStorage.clear(); location.reload(); });
-
-  // Voltar telas
-  $("#btn-voltar-account") && ($("#btn-voltar-account").onclick = showStepAccount);
-
-  // Fluxo de cadastro
   $("#link-acct-register") && ($("#link-acct-register").onclick = (e) => { e.preventDefault(); showStepRegister(); $("#reg-email")?.focus(); });
   $("#btn-back-to-login") && ($("#btn-back-to-login").onclick = (e) => { e.preventDefault(); showStepAccount(); $("#acct-email")?.focus(); });
   $("#btn-acct-register") && ($("#btn-acct-register").onclick = acctRegister);
   $("#reg-pass") && $("#reg-pass").addEventListener("keypress", (e) => { if (e.key === "Enter") { e.preventDefault(); acctRegister(); } });
 
+  // Billing
+  $("#btn-conversas") && ($("#btn-conversas").onclick = showConversasView);
+  $("#btn-pagamentos") && ($("#btn-pagamentos").onclick = showBillingView);
+  $("#btn-pay-getnet") && ($("#btn-pay-getnet").onclick = createCheckoutLink);
+  $("#btn-go-to-payments") && ($("#btn-go-to-payments").onclick = () => { hideBillingModal(); showBillingView(); });
+  $("#btn-logout-modal") && ($("#btn-logout-modal").onclick = () => { try { stopStream(); } catch {} localStorage.clear(); location.reload(); });
+
   // Rota bonita
   $("#link-cadastrar") && ($("#link-cadastrar").onclick = (e) => { e.preventDefault(); window.location.href = "/pagamentos/getnet"; });
 
+  // Inicializa rota
   ensureRoute();
 });
